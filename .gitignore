@@ -1,0 +1,16 @@
+# Python
+venv_mario/
+__pycache__/
+*.pyc
+
+# Models and Data (Too heavy for Git)
+models/*/model.pkl
+models/*/rewards.npy
+models/DDQN/*.pt
+models/DDQN/*.pkl
+
+# Outputs
+output/
+tensorboard/
+*.mp4
+*.png
