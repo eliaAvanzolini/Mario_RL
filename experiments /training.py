@@ -13,7 +13,8 @@ from tqdm import tqdm
 from collections import deque
 import torch
 import numpy as np
-from models import MarioInterface, DoubleDeepQLearning
+from deep_models import DeepMarioInterface, DoubleDeepQLearning
+from tabular_models import TabularQLearning
 # from setup_env import custom_reward
 from torch.utils.data import WeightedRandomSampler
 from operator import itemgetter
@@ -85,10 +86,10 @@ class ReplayBufferWeightedSampling:
 ACTION_SPACE_MINIMAL = [['right'], ['right', 'A']]
 
 
-class MarioTrainer():
-    def __init__(self, model_class: type[MarioInterface],
+class DeepMarioTrainer():
+    def __init__(self, model_class: type[DeepMarioInterface],
                  opt = Adam,
-                 checkpoint_folder="model_checkpoints"):
+                 output_folder="deep_training"):
         self.opt_class = opt
         env = gym.make("SuperMarioBros-1-1-v3")
 
@@ -102,13 +103,23 @@ class MarioTrainer():
         # env = NormalizeReward(env)
         env = RecordEpisodeStatistics(env)
 
+        self.output_folder = output_folder
+        self.checkpoint_folder = os.path.join(self.output_folder, "checkpoint")
+        self.logs_folder = os.path.join(self.output_folder, "logs")
+        self.recordings_folder = os.path.join(self.logs_folder, "recordings")
+        self.test_logs_folder = os.path.join(self.logs_folder, "test_logs")
+
+        os.makedirs(self.checkpoint_folder, exist_ok=True)
+        os.makedirs(self.logs_folder, exist_ok=True)
+        os.makedirs(self.recordings_folder, exist_ok=True)
+        os.makedirs(self.test_logs_folder, exist_ok=True)
+
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.checkpoint_folder = checkpoint_folder
         print("Training on: ", self.device)
         torch.set_default_device(self.device)
         self.env = env
 
-        self.logger = MetricLogger()
+        self.logger = MetricLogger(save_dir=self.logs_folder)
         self.model = model_class(self.action_space_size, self.device, self.checkpoint_folder, epsilon_decay=0.9999996)
 
 
@@ -126,7 +137,7 @@ class MarioTrainer():
 
         if record:
             # Record each 250 episodes
-            self.env = RecordVideo(self.env, video_folder="./recordings", name_prefix="mario-rl", episode_trigger=lambda e: e % 250 == 0)
+            self.env = RecordVideo(self.env, video_folder=self.recordings_folder, name_prefix="mario-rl", episode_trigger=lambda e: e % 250 == 0)
 
         self.optimizer = self.opt_class(self.model.main_net.parameters(), lr=lr)
 
@@ -197,7 +208,7 @@ class MarioTrainer():
     def test_model(self, max_attempts_to_win):
 
         self.model.load_latest_checkpoint()
-        recordings_dir = "test_logs"
+        recordings_dir = self.test_logs_folder
         os.makedirs(recordings_dir, exist_ok=True)
 
         test_env = gym.make("SuperMarioBros-1-1-v3")
@@ -241,5 +252,195 @@ class MarioTrainer():
 
                 rewards.append(reward)
                 current_state = torch.from_numpy(np.asarray(next_state, dtype=np.float32)).to(self.device)
+
+        test_env.close()
+
+
+class TabularMarioTrainer:
+    def __init__(self,
+                 output_folder="tabular_training",
+                 use_sarsa=False,
+                 bin_size=16,
+                 gamma=0.99,
+                 learning_rate=0.10,
+                 epsilon_decay=0.999995,
+                 action_space=None):
+        env = gym.make("SuperMarioBros-1-1-v3")
+
+        self.action_space = action_space if action_space is not None else ACTION_SPACE_MINIMAL
+        self.action_space_size = len(self.action_space)
+        env = JoypadSpace(env, self.action_space)
+        env = SkipFrame(env, skip=4)
+        env = RecordEpisodeStatistics(env)
+
+        self.output_folder = output_folder
+        self.checkpoint_folder = os.path.join(self.output_folder, "checkpoint")
+        self.logs_folder = os.path.join(self.output_folder, "logs")
+        self.recordings_folder = os.path.join(self.logs_folder, "recordings")
+        self.test_logs_folder = os.path.join(self.logs_folder, "test_logs")
+
+        os.makedirs(self.checkpoint_folder, exist_ok=True)
+        os.makedirs(self.logs_folder, exist_ok=True)
+        os.makedirs(self.recordings_folder, exist_ok=True)
+        os.makedirs(self.test_logs_folder, exist_ok=True)
+
+        self.env = env
+        self.logger = MetricLogger(save_dir=self.logs_folder)
+        self.use_sarsa = use_sarsa
+        self.bin_size = bin_size
+
+        self.max_x_dim = 4096
+        self.max_y_dim = 256
+
+        self.model = TabularQLearning(
+            output_dim=self.action_space_size,
+            max_x_dim=self.max_x_dim,
+            max_y_dim=self.max_y_dim,
+            bin_size=self.bin_size,
+            checkpoint_dir=self.checkpoint_folder,
+            gamma=gamma,
+            learning_rate=learning_rate,
+            epsilon_decay=epsilon_decay,
+        )
+
+    def _to_bins(self, x_pos: int, y_pos: int):
+        max_x_idx = (self.max_x_dim // self.bin_size) - 1
+        max_y_idx = (self.max_y_dim // self.bin_size) - 1
+        x_bin = int(np.clip(x_pos // self.bin_size, 0, max_x_idx))
+        y_bin = int(np.clip(y_pos // self.bin_size, 0, max_y_idx))
+        return x_bin, y_bin
+
+    def train_model(self,
+                    episodes=25_000,
+                    save_every_n_steps=250_000,
+                    record=False,
+                    max_repl_buffer_len=100_000,
+                    batch_size=128,
+                    train_every=4,
+                    start_training_after=10_000):
+
+        if record:
+            self.env = RecordVideo(
+                self.env,
+                video_folder=self.recordings_folder,
+                name_prefix="mario-tabular",
+                episode_trigger=lambda e: e % 500 == 0,
+            )
+
+        episodes_iter = tqdm(range(episodes), position=0, leave=True, miniters=100)
+        episodes_iter.set_description(f'Episode [{0}/{episodes}]')
+
+        step_count = 0
+
+        repl_buffer = deque(maxlen=max_repl_buffer_len)
+
+        for episode in episodes_iter:
+            episodes_iter.set_description(f'Episode [{episode + 1}/{episodes}]')
+            if episode % 100 == 0:
+                self.logger.record(episode=episode, epsilon=self.model.epsilon(step_count), step=step_count)
+
+            _ = self.env.reset()
+            done = False
+            info = {"x_pos": 0, "y_pos": 0}
+
+            x_bin, y_bin = self._to_bins(info.get("x_pos", 0), info.get("y_pos", 0))
+            action = self.model.get_next_action(x_bin, y_bin, step_count)
+
+            while True:
+                step_count += 1
+
+                if step_count % save_every_n_steps == 0:
+                    self.model.save_checkpoint()
+
+                next_obs, reward, done, info = self.env.step(action)
+                del next_obs
+                next_x_bin, next_y_bin = self._to_bins(info.get("x_pos", 0), info.get("y_pos", 0))
+
+                curr_eps = self.model.epsilon(step_count)
+                repl_buffer.append((x_bin, y_bin, action, reward, next_x_bin, next_y_bin, done, curr_eps))
+
+                next_action = self.model.get_next_action(next_x_bin, next_y_bin, step_count)
+
+                if (
+                    step_count > start_training_after
+                    and len(repl_buffer) >= batch_size
+                    and step_count % train_every == 0
+                ):
+                    sample_idx = np.random.choice(len(repl_buffer), size=batch_size, replace=False)
+                    samples = [repl_buffer[idx] for idx in sample_idx]
+                    x_b, y_b, a_b, r_b, nx_b, ny_b, d_b, eps_b = map(np.asarray, zip(*samples))
+
+                    td_loss = self.model.update_value(
+                        x_pos=x_b,
+                        y_pos=y_b,
+                        action=a_b,
+                        reward=r_b.astype(np.float32),
+                        next_x=nx_b,
+                        next_y=ny_b,
+                        done=d_b.astype(bool),
+                        use_sarsa=self.use_sarsa,
+                        epsilons=eps_b.astype(np.float32),
+                    )
+                    self.logger.log_step(reward=0.0, loss=np.float32(td_loss))
+
+                self.logger.log_step(reward=reward, loss=None)
+
+                x_bin, y_bin = next_x_bin, next_y_bin
+                action = next_action
+
+                if done or info.get("flag_get"):
+                    self.logger.log_episode()
+                    episode_reward = info.get("episode", {}).get("r")
+                    if episode_reward is not None:
+                        episodes_iter.set_postfix(avg_reward=episode_reward)
+                    break
+
+        self.env.close()
+        self.model.save_checkpoint()
+        print("Finished tabular training and saved latest checkpoint.")
+
+    def test_model(self, max_attempts_to_win=100, test_epsilon=0.05):
+        self.model.load_latest_checkpoint()
+        recordings_dir = self.test_logs_folder
+        os.makedirs(recordings_dir, exist_ok=True)
+
+        test_env = gym.make("SuperMarioBros-1-1-v3")
+        test_env = JoypadSpace(test_env, self.action_space)
+        test_env = RecordVideo(
+            test_env,
+            video_folder=recordings_dir,
+            name_prefix="tabular-winning-run",
+            episode_trigger=lambda _: True,
+        )
+
+        for _ in tqdm(range(max_attempts_to_win), desc='Trying to complete world #1'):
+            _ = test_env.reset()
+            done = False
+            info = {"x_pos": 0, "y_pos": 0}
+
+            while True:
+                x_bin, y_bin = self._to_bins(info.get("x_pos", 0), info.get("y_pos", 0))
+                next_action = self.model.get_next_action(
+                    x_bin,
+                    y_bin,
+                    step_number=0,
+                    custom_epsilon=test_epsilon,
+                )
+
+                total_reward = 0
+                for _ in range(4):
+                    _, reward, done, info = test_env.step(next_action)
+                    total_reward += reward
+                    if done and info.get('flag_get', False):
+                        print(f'Winning run recorded in: {recordings_dir}')
+                        test_env.close()
+                        return
+                    elif done:
+                        break
+
+                del total_reward
+
+                if done:
+                    break
 
         test_env.close()

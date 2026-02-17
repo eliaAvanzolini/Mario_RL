@@ -38,7 +38,7 @@ class ConvMarioNet(nn.Module):
         return self.output(h)
 
 
-class MarioInterface(ABC):
+class DeepMarioInterface(ABC):
     def __init__(self, output_dim, device, checkpoint_dir, epsilon_decay = 0.99999975) -> None:
         self.main_net = ConvMarioNet(output_dim).to(device)
         self.output_dim = output_dim
@@ -115,7 +115,7 @@ class MarioInterface(ABC):
         pass
 
 
-class DeepQLearning(MarioInterface):
+class DeepQLearning(DeepMarioInterface):
     def __init__(self, output_dim, device, checkpoint_dir, epsilon_decay, gamma=0.9) -> None:
         super().__init__(output_dim, device, checkpoint_dir, epsilon_decay)
         self.gamma = gamma
@@ -135,7 +135,7 @@ class DeepQLearning(MarioInterface):
         return torch.pow(predicted_action_values - targets, 2).mean()
 
 
-class DoubleDeepQLearning(MarioInterface):
+class DoubleDeepQLearning(DeepMarioInterface):
     def __init__(self, output_dim, device, checkpoint_dir, epsilon_decay, gamma=0.9):
         super().__init__(output_dim, device, checkpoint_dir, epsilon_decay)
         self.gamma = gamma
