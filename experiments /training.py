@@ -82,7 +82,7 @@ class ReplayBufferWeightedSampling:
     def __len__(self):
         return len(self.main_queue)
 
-ACTION_SPACE_MINIMAL = [['right'], ['right', 'A'], ['right', 'A', 'B']]
+ACTION_SPACE_MINIMAL = [['right'], ['right', 'A']]
 
 
 class MarioTrainer():
@@ -109,7 +109,7 @@ class MarioTrainer():
         self.env = env
 
         self.logger = MetricLogger()
-        self.model = model_class(self.action_space_size, self.device, self.checkpoint_folder, epsilon_decay=0.999999)
+        self.model = model_class(self.action_space_size, self.device, self.checkpoint_folder, epsilon_decay=0.9999996)
 
 
     def train_model(self, sync_every_n_steps, save_every_n_steps,
@@ -218,7 +218,7 @@ class MarioTrainer():
             rewards = []
             while True:
                 # Set extremely low exploration for testing!
-                next_action = self.model.get_next_action(current_state, step_number=0, custom_epsilon=0.02)
+                next_action = self.model.get_next_action(current_state, step_number=0, custom_epsilon=0.15)
                 total_reward = 0
                 next_state = None
                 done = False

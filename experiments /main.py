@@ -9,13 +9,13 @@ def main():
                            checkpoint_folder=checkpoints_path)
     if TRAIN_MODE:
         trainer.train_model(sync_every_n_steps=10_000,
-                            save_every_n_steps=100_000,
-                            start_training_after=10_000,
+                            save_every_n_steps=500_000,
+                            start_training_after=100_000,
                             record=True,
                             episodes=20_000,
                             train_every=3,
                             lr=0.00025,
-                            max_repl_buffer_len=70_000,
+                            max_repl_buffer_len=100_000,
                             batch_size=32)
 
     else:
