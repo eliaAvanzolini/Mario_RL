@@ -120,7 +120,7 @@ class DeepMarioTrainer():
         self.env = env
 
         self.logger = MetricLogger(save_dir=self.logs_folder)
-        self.model = model_class(self.action_space_size, self.device, self.checkpoint_folder, epsilon_decay=0.9999996)
+        self.model = model_class(self.action_space_size, self.device, self.checkpoint_folder)
 
 
     def train_model(self, sync_every_n_steps, save_every_n_steps,
@@ -130,10 +130,14 @@ class DeepMarioTrainer():
                     max_repl_buffer_len,
                     lr,
                     batch_size,
+                    eps_decay,
                     record=False):
 
         self.batch_size = batch_size
         self.replay_buffer = ReplayBufferWeightedSampling(queue_max_len=max_repl_buffer_len, bin_size=20)
+
+        # Set the training epsilon decay!
+        self.model.set_eps_decay(eps_decay)
 
         if record:
             # Record each 250 episodes

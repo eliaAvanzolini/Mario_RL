@@ -39,7 +39,7 @@ class ConvMarioNet(nn.Module):
 
 
 class DeepMarioInterface(ABC):
-    def __init__(self, output_dim, device, checkpoint_dir, epsilon_decay = 0.99999975) -> None:
+    def __init__(self, output_dim, device, checkpoint_dir) -> None:
         self.main_net = ConvMarioNet(output_dim).to(device)
         self.output_dim = output_dim
         self.device = device
@@ -49,12 +49,15 @@ class DeepMarioInterface(ABC):
         self.target_net_update = True
 
         self.epsilon_start = 1.0
-        self.epsilon_min = 0.10
+        self.epsilon_min = 0.02
         # with the current configuration we will reach epsilon_min at around 1000000 steps
-        self.epsilon_decay = epsilon_decay
+        self.epsilon_decay = 0
 
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(self.checkpoint_dir, exist_ok=True)
+
+    def set_eps_decay(self, eps_decay):
+        self.epsilon_decay = eps_decay
 
     def save_checkpoint(self):
         now = datetime.now()
@@ -116,8 +119,8 @@ class DeepMarioInterface(ABC):
 
 
 class DeepQLearning(DeepMarioInterface):
-    def __init__(self, output_dim, device, checkpoint_dir, epsilon_decay, gamma=0.9) -> None:
-        super().__init__(output_dim, device, checkpoint_dir, epsilon_decay)
+    def __init__(self, output_dim, device, checkpoint_dir, gamma=0.9) -> None:
+        super().__init__(output_dim, device, checkpoint_dir)
         self.gamma = gamma
 
 
@@ -136,8 +139,8 @@ class DeepQLearning(DeepMarioInterface):
 
 
 class DoubleDeepQLearning(DeepMarioInterface):
-    def __init__(self, output_dim, device, checkpoint_dir, epsilon_decay, gamma=0.9):
-        super().__init__(output_dim, device, checkpoint_dir, epsilon_decay)
+    def __init__(self, output_dim, device, checkpoint_dir, gamma=0.9):
+        super().__init__(output_dim, device, checkpoint_dir)
         self.gamma = gamma
 
     def compute_loss(self, state, action, reward, next_state, done) -> torch.Tensor:

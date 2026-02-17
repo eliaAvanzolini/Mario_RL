@@ -14,15 +14,16 @@ def main():
             output_folder="deep_training",
         )
         if TRAIN_MODE:
-            deep_trainer.train_model(sync_every_n_steps=10_000,
-                                     save_every_n_steps=500_000,
-                                     start_training_after=100_000,
+            deep_trainer.train_model(sync_every_n_steps=5_000,
+                                     save_every_n_steps=100_000,
+                                     start_training_after=32,
                                      record=True,
-                                     episodes=20_000,
-                                     train_every=3,
+                                     episodes=10_000,
+                                     train_every=1,
                                      lr=0.00025,
-                                     max_repl_buffer_len=100_000,
-                                     batch_size=32)
+                                     max_repl_buffer_len=30_000,
+                                     batch_size=32,
+                                     eps_decay=0.99)
         else:
             deep_trainer.test_model(max_attempts_to_win=100)
 
