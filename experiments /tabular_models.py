@@ -81,13 +81,13 @@ class TabularQLearning:
     def update_sarsa_value(self, x_pos, y_pos, action, reward, next_x, next_y, done, epsilons):
         predicted_action_values = self.policy_matrix[x_pos, y_pos, action]
 
-        #Compute the future reward estimate (on policy!!)
+        #Compute the future reward estimate (on policy!)
         chosen_actions = np.argmax(self.policy_matrix[next_x, next_y], axis=1)
 
         random_mask = np.random.random_sample(epsilons.shape) < epsilons
 
-        rand_actions = np.random.randint(self.output_dim, epsilons.shape)
-        chosen_actions[random_mask] = rand_actions[random_mask]
+        rand_actions = np.random.randint(self.output_dim, size=(random_mask.sum()))
+        chosen_actions[random_mask] = rand_actions
 
         # Now set the SARSA target with the chosen actions
         q_target = self.policy_matrix[next_x, next_y, chosen_actions]

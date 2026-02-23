@@ -13,7 +13,7 @@ from tqdm import tqdm
 from collections import deque
 import torch
 import numpy as np
-from deep_models import DeepMarioInterface, DoubleDeepQLearning
+from deep_models import DeepMarioInterface
 from tabular_models import TabularQLearning
 # from setup_env import custom_reward
 from torch.utils.data import WeightedRandomSampler
@@ -162,7 +162,7 @@ class DeepMarioTrainer():
             info = {}
             while True:
                 step_count +=1
-                if episode % 150 == 0 and start_of_episode:
+                if episode % 100 == 0 and start_of_episode:
                     self.logger.record(episode=episode, epsilon=self.model.epsilon(step_count), step=step_count)
 
                 if step_count % save_every_n_steps == 0:
@@ -189,7 +189,7 @@ class DeepMarioTrainer():
                 # Update state
                 current_state = next_state
 
-                # Train every 2 steps
+                # Train every train_every steps
                 if step_count > start_training_after and step_count % train_every == 0:
                     training_samples = self.replay_buffer.weighted_sample(k=self.batch_size, uniform=True)
                     current_states_b, actions_b, rewards_b, next_states_b, game_completed_b = tuple(map(torch.stack, zip(*training_samples)))
@@ -206,7 +206,7 @@ class DeepMarioTrainer():
 
         self.env.close()
         self.model.save_checkpoint()
-        print("Finished training and saved beste checkpoint!")
+        print("Finished training and saved last checkpoint!")
 
 
     def test_model(self, max_attempts_to_win):
@@ -217,9 +217,7 @@ class DeepMarioTrainer():
 
         test_env = gym.make("SuperMarioBros-1-1-v3")
         test_env = JoypadSpace(test_env, ACTION_SPACE_MINIMAL)
-        test_env = ResizeObservation(test_env, shape=(84,84))
-        test_env = GrayScaleObservation(test_env)
-        test_env = FrameStack(test_env, num_stack=4)
+
         test_env = RecordVideo(
             test_env,
             video_folder=recordings_dir,
@@ -227,18 +225,24 @@ class DeepMarioTrainer():
             episode_trigger=lambda _: True,
         )
 
+        test_env = SkipFrame(test_env, skip=4)
+        test_env = ResizeObservation(test_env, shape=(84,84))
+        test_env = GrayScaleObservation(test_env)
+        test_env = FrameStack(test_env, num_stack=4)
+
+
         for attempt in tqdm(range(max_attempts_to_win), desc='Trying to complete word #1'):
             current_state = test_env.reset()
             current_state = torch.from_numpy(np.asarray(current_state, dtype=np.float32)).to(self.device)
             rewards = []
             while True:
-                # Set extremely low exploration for testing!
-                next_action = self.model.get_next_action(current_state, step_number=0, custom_epsilon=0.15)
+                # Use the same minimum exploration rate as used during training!
+                next_action = self.model.get_next_action(current_state, step_number=0, custom_epsilon=0.02)
                 total_reward = 0
                 next_state = None
                 done = False
                 # Manually apply the 4 skip steps so that the model acts only every 4 frames, but the recording is still complete!
-                for _ in range(4):
+                for _ in range(1):
                     # Accumulate reward and repeat the same action
                     next_state, reward, done, info = test_env.step(next_action)
                     total_reward += reward
